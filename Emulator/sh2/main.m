@@ -17,14 +17,6 @@ typedef unsigned short u16;
 typedef unsigned int   u32;
 typedef unsigned long  uptr; // unsigned pointer-sized int
 
-static NSData * data1;
-static NSData * data2;
-
-static const uint32_t rom1_start = 0x00000000;
-static const uint32_t rom1_len   = 0x00007fff;
-
-static const uint32_t rom2_start = 0x00008000;
-static const uint32_t rom2_len   = 0x00008000;
 
 static const uint32_t on_chip_ram_start = 0xFFFFF000;
 uint8_t on_chip_ram[0x1000];
@@ -32,78 +24,13 @@ uint8_t on_chip_ram[0x1000];
 static const uint32_t dram_start = 0x01000000;
 uint8_t dram[0x1000000];
 
+typedef struct {
+    uint32_t   start;
+    uint32_t   length;
+    uint8_t  * bytes;
+} rom_t;
 
-/*
- 
- cs2 + 0x00 0000 -- SPC
- cs2 + 0x10 0000 -- LCDCM
- cs2 + 0x20 0000 -- LCDCIO
- cs2 + 0x30 0000 -- TGL
-
- cs3 + 0x00 0000
- cs3 + 0x10 0000 -- MOSS
- cs3 + 0x20 0000 -- FDC
- cs3 + 0x30 0000 -- SCU
-
- */
-
-u32 p32x_sh2_read8(u32 a, SH2 *sh2) {
-    if (a == 0xf00000) {
-        printf("pc: %08x )  reading    at %08x : 1\n", sh2->pc, a);
-        return 1;
-    }
-
-        if (a == 0x98c) {
-            printf("");
-        }
-    
-    if (a == 0xf00001) {
-        //printf("reading %08x -- 1\n", a);
-        static int i = 0;
-        return ++i;
-    }
-
-    
-    if (!!(a & 0x00400000)) {
-//        printf("flash %08x\n", sh2->pc);
-    }
-    
-    // -----
-    
-    if ((a <= data1.length) && (a < rom2_start)) {
-        uint32_t real_a = a + 2; // file header
-        
-        const char * x = data1.bytes;
-        //NSLog(@"read at %08x : %02x", a, x[real_a]);
-        return x[real_a];
-    }
-    else if ((a >= rom2_start) && (a < (rom2_start + rom2_len))) {
-        uint32_t real_a = a - rom2_start + 2; // file header
-        const char * x = data2.bytes;
-        return (real_a < data2.length) ? x[real_a] : 1;
-    }
-    else if ((a >= dram_start) && (a < (dram_start + sizeof(dram)))) {
-//        printf("dram read at %08x -- %x\n", a, dram[a - dram_start]);
-        return dram[a - dram_start];
-    }
-    else if (a >= on_chip_ram_start)
-    {
-//        printf("memory read at %08x -- %x\n", a, on_chip_ram[a - on_chip_ram_start]);
-        return on_chip_ram[a - on_chip_ram_start];
-    }
-    else {
-        //printf("unmapped memory read at %08x\n", a);
-        return 0;
-    }
-}
-
-u32 p32x_sh2_read16(u32 a, SH2 *sh2) {
-    return ((p32x_sh2_read8(a, sh2) & 0xff) << 8) + (p32x_sh2_read8(a + 1, sh2) & 0xff);
-}
-
-u32 p32x_sh2_read32(u32 a, SH2 *sh2) {
-    return (p32x_sh2_read16(a, sh2) << 16) + p32x_sh2_read16(a + 2, sh2);
-}
+rom_t roms[4];
 
 struct symbols_t {
     uint32_t addr;
@@ -164,19 +91,19 @@ struct symbols_t {
 char * name_for(uint32_t addr) {
     if ((0x00200000 <= addr) && (addr <= 0x003FFFFF))
         return "(CS0)";
-
+    
     if ((0x00400000 <= addr) && (addr <= 0x007FFFFF))
         return "(CS1)";
-
+    
     if ((0x00800000 <= addr) && (addr <= 0x00BFFFFF))
         return "(CS2)";
-
+    
     if ((0x00C00000 <= addr) && (addr <= 0x00FFFFFF))
         return "(CS3)";
-
+    
     if ((0x01000000 <= addr) && (addr <= 0x01FFFFFF))
         return "(DRAM)";
-
+    
     for (int i = 0; i < sizeof(symbols) / sizeof(struct symbols_t); i++) {
         if (addr == symbols[i].addr) {
             return symbols[i].name;
@@ -186,24 +113,81 @@ char * name_for(uint32_t addr) {
     return "";
 }
 
-void p32x_sh2_write8_ex(u32 a, u32 d, SH2 *sh2, BOOL print) {
-    if ((a == 0xf00000) || (a == 0xf00001)) {
-//        printf("setting %08x -- %x\n",a, d);
+
+/*
+ 
+ cs2 + 0x00 0000 -- SPC
+ cs2 + 0x10 0000 -- LCDCM
+ cs2 + 0x20 0000 -- LCDCIO
+ cs2 + 0x30 0000 -- TGL
+
+ cs3 + 0x00 0000
+ cs3 + 0x10 0000 -- MOSS
+ cs3 + 0x20 0000 -- FDC
+ cs3 + 0x30 0000 -- SCU
+
+ */
+
+u32 p32x_sh2_read8(u32 a, SH2 *sh2) {
+    if (a == 0xf00000) {
+        printf("pc: %08x )  reading    at %08x : 1\n", sh2->pc, a);
+        return 1;
     }
     
+    if (a == 0xf00001) {
+        printf("reading %08x -- 1\n", a);
+        static int i = 0;
+        return ++i;
+    }
+    
+    // -----
+    
+    for (int i = 0; i < (sizeof(roms) / sizeof(rom_t)); i++) {
+        if ((roms[i].start <= a) &&
+            (a < roms[i].start + roms[i].length))
+        {
+            return roms[i].bytes[a - roms[i].start];
+        }
+    }
+
+    if ((a >= dram_start) && (a < (dram_start + sizeof(dram)))) {
+        printf("pc: %08x )  read  dram at %08x : byte  %8x %s\n", sh2->pc, a,  dram[a - dram_start], name_for(a));
+        
+        return dram[a - dram_start];
+    }
+    else if (a >= on_chip_ram_start)
+    {
+        printf("pc: %08x )  read  cram at %08x : byte  %8x %s\n", sh2->pc, a,  on_chip_ram[a - on_chip_ram_start], name_for(a));
+        return on_chip_ram[a - on_chip_ram_start];
+    }
+    else {
+        printf("pc: %08x )  read UNMAP at %08x : byte  %8x %s\n", sh2->pc, a,  0, name_for(a));
+        return 0;
+    }
+}
+
+u32 p32x_sh2_read16(u32 a, SH2 *sh2) {
+    return ((p32x_sh2_read8(a, sh2) & 0xff) << 8) + (p32x_sh2_read8(a + 1, sh2) & 0xff);
+}
+
+u32 p32x_sh2_read32(u32 a, SH2 *sh2) {
+    return (p32x_sh2_read16(a, sh2) << 16) + p32x_sh2_read16(a + 2, sh2);
+}
+
+void p32x_sh2_write8_ex(u32 a, u32 d, SH2 *sh2, BOOL print) {
     if ((a >= dram_start) &&
         (a < (dram_start + sizeof(dram))))
     {
         dram[a - dram_start] = d;
-        //printf("dram write at %08x : %x\n", a, d);
+        if (print) printf("pc: %08x )  write dram at %08x : byte  %8x %s\n", sh2->pc, a, d, name_for(a));
     }
     else if (a >= on_chip_ram_start)
     {
         on_chip_ram[a - on_chip_ram_start] = d;
-        //printf("ram write at %08x : %x\n", a, d);
+        if (print) printf("pc: %08x )  write cram at %08x : byte  %8x %s\n", sh2->pc, a, d, name_for(a));
     }
     else {
-        if (print) printf("pc: %08x )  write      at %08x : %8x %s\n", sh2->pc, a, d, name_for(a));
+        if (print) printf("pc: %08x )  write      at %08x : byte  %8x %s\n", sh2->pc, a, d, name_for(a));
     }
 }
 
@@ -215,16 +199,17 @@ void p32x_sh2_write16_ex(u32 a, u32 d, SH2 *sh2, BOOL print) {
     p32x_sh2_write8_ex(a,     (d & 0xff00) >> 8, sh2, false);
     p32x_sh2_write8_ex(a + 1, (d & 0x00ff),      sh2, false);
 
-    
     if ((a >= dram_start) &&
         (a < (dram_start + sizeof(dram))))
     {
+        if (print) printf("pc: %08x )  write dram at %08x : word  %8x %s\n", sh2->pc, a, d, name_for(a));
     }
     else if (a >= on_chip_ram_start)
     {
+        if (print) printf("pc: %08x )  write cram at %08x : word  %8x %s\n", sh2->pc, a, d, name_for(a));
     }
     else {
-        if (print) printf("pc: %08x )  writeword  at %08x : %8x %s\n", sh2->pc, a, d, name_for(a));
+        if (print) printf("pc: %08x )  write      at %08x : word  %8x %s\n", sh2->pc, a, d, name_for(a));
     }
 }
 
@@ -235,16 +220,20 @@ void p32x_sh2_write16(u32 a, u32 d, SH2 *sh2) {
 void p32x_sh2_write32(u32 a, u32 d, SH2 *sh2) {
     p32x_sh2_write16_ex(a,     (d & 0xffff0000) >> 16, sh2, false);
     p32x_sh2_write16_ex(a + 2, (d & 0x0000ffff),       sh2, false);
-    
+
+//    if (sh2->pc == 0x6ce) return;
+
     if ((a >= dram_start) &&
         (a < (dram_start + sizeof(dram))))
     {
+        printf("pc: %08x )  write dram at %08x : dword %8x %s\n", sh2->pc, a, d, name_for(a));
     }
     else if (a >= on_chip_ram_start)
     {
+        printf("pc: %08x )  write cram at %08x : dword %8x %s\n", sh2->pc, a, d, name_for(a));
     }
     else {
-        printf("pc: %08x )  writedword at %08x : %8x %s\n", sh2->pc, a, d, name_for(a));
+        printf("pc: %08x )  write      at %08x : dword %8x %s\n", sh2->pc, a, d, name_for(a));
     }
 }
 
@@ -261,12 +250,24 @@ static int sh2_irq_cb(SH2 *sh2, int level)
     }
 }
 
+void loadRom(uint32_t start, NSString * file, rom_t * rom) {
+    __auto_type data = [NSData dataWithContentsOfFile:file];
+    
+    rom->start  = start;
+    rom->length = (uint32_t)  (data.length - 2);
+    rom->bytes  = malloc(rom->length);
+    
+    memcpy(rom->bytes, data.bytes + 2, rom->length);
+}
 
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
-        data1 = [NSData dataWithContentsOfFile:@"disk1/INT01080.710"];
-        data2 = [NSData dataWithContentsOfFile:@"disk3/EXT74080.710"];
         
+        loadRom(0x00000000, @"disk1/INT01080.710", &roms[0]);
+        loadRom(0x00008000, @"disk1/INT13080.710", &roms[1]);
+        loadRom(0x00400000, @"disk1/EXT03080.710", &roms[2]);
+        loadRom(0x004c0000, @"disk2/EXT34080.710", &roms[3]);
+
         SH2 sh2;
         sh2_init(&sh2);
         sh2.irq_callback = sh2_irq_cb;
@@ -277,8 +278,10 @@ int main(int argc, const char * argv[]) {
         sh2.write16 = p32x_sh2_write16;
         sh2.write32 = p32x_sh2_write32;
         
+        p32x_sh2_read8(0x040008e, &sh2);
+        
         sh2_reset(&sh2);
-        sh2_execute(&sh2, 10000000, 1);
+        sh2_execute(&sh2, 10000000, 0);
     }
     return 0;
 }
