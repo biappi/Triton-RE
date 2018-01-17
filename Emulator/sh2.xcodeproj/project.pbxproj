@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		3F3B11C41DA7F5E8008D2E1A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 3F3B11C31DA7F5E8008D2E1A /* main.m */; };
+		3F3B11C41DA7F5E8008D2E1A /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 3F3B11C31DA7F5E8008D2E1A /* main.mm */; };
 		3F3B11D51DA7F608008D2E1A /* sh2.c in Sources */ = {isa = PBXBuildFile; fileRef = 3F3B11D21DA7F5FC008D2E1A /* sh2.c */; };
 		3F3B11D81DA7F612008D2E1A /* sh2pico.c in Sources */ = {isa = PBXBuildFile; fileRef = 3F3B11D11DA7F5FC008D2E1A /* sh2pico.c */; };
 		3F54F2411DA9B4040067CA5C /* sh2dasm.c in Sources */ = {isa = PBXBuildFile; fileRef = 3F3B11CF1DA7F5FC008D2E1A /* sh2dasm.c */; };
@@ -27,7 +27,7 @@
 
 /* Begin PBXFileReference section */
 		3F3B11C01DA7F5E8008D2E1A /* sh2 */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = sh2; sourceTree = BUILT_PRODUCTS_DIR; };
-		3F3B11C31DA7F5E8008D2E1A /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		3F3B11C31DA7F5E8008D2E1A /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		3F3B11CE1DA7F5FC008D2E1A /* sh2.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = sh2.c; sourceTree = "<group>"; };
 		3F3B11CF1DA7F5FC008D2E1A /* sh2dasm.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = sh2dasm.c; sourceTree = "<group>"; };
 		3F3B11D01DA7F5FC008D2E1A /* sh2dasm.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = sh2dasm.h; sourceTree = "<group>"; };
@@ -70,7 +70,7 @@
 			isa = PBXGroup;
 			children = (
 				3F3B11CA1DA7F5FC008D2E1A /* sh2 */,
-				3F3B11C31DA7F5E8008D2E1A /* main.m */,
+				3F3B11C31DA7F5E8008D2E1A /* main.mm */,
 				3F3B11DA1DA7F6A6008D2E1A /* debug.h */,
 				3F3B11E21DA7FB81008D2E1A /* memory.c */,
 				3F54F23F1DA9A73B0067CA5C /* memory-32.c */,
@@ -125,7 +125,7 @@
 		3F3B11B81DA7F5E8008D2E1A /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0800;
+				LastUpgradeCheck = 0920;
 				ORGANIZATIONNAME = "Antonio Malara";
 				TargetAttributes = {
 					3F3B11BF1DA7F5E8008D2E1A = {
@@ -158,7 +158,7 @@
 			files = (
 				3F54F2411DA9B4040067CA5C /* sh2dasm.c in Sources */,
 				3F3B11D51DA7F608008D2E1A /* sh2.c in Sources */,
-				3F3B11C41DA7F5E8008D2E1A /* main.m in Sources */,
+				3F3B11C41DA7F5E8008D2E1A /* main.mm in Sources */,
 				3F3B11D81DA7F612008D2E1A /* sh2pico.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -175,7 +175,9 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
@@ -183,7 +185,12 @@
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_SUSPICIOUS_MOVES = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
@@ -222,7 +229,9 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
@@ -230,7 +239,12 @@
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_SUSPICIOUS_MOVES = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;

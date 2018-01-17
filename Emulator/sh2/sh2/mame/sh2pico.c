@@ -80,7 +80,7 @@ unsigned int saved_sr = 0;
 
 int sh2_execute_interpreter(SH2 *sh2, int cycles, int do_trace)
 {
-    int trace = 1;
+    int trace = 0;
     
 	UINT32 opcode;
 
@@ -131,8 +131,7 @@ int sh2_execute_interpreter(SH2 *sh2, int cycles, int do_trace)
             }
 
             if (trace && (sh2->sr > saved_sr)) {
-                trace = 0;
-                printf("\n");
+//                trace = 0;
             }
             
             
@@ -141,16 +140,19 @@ int sh2_execute_interpreter(SH2 *sh2, int cycles, int do_trace)
                 DasmSH2(buff, sh2->pc, opcode);
                 printf("instruction at pc: %08x -- [ %04x ] -- %s\n", sh2->pc, opcode, buff);
             }
-            
-            if (sh2->pc == 0x001d9e2) {
-                exit(1);
-            }
         }
         
+        if (sh2->pc == 0x001d9e2) {
+            exit(1);
+        }
+
+        if (sh2->pc == 0x6ea) {
+            printf("");
+        }
+
         if (sh2->ppc == 0x996) {
             trace = do_trace && 1;
         }
-        
 
 		sh2->delay = 0;
 		sh2->pc += 2;
