@@ -9,10 +9,20 @@
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
+		<key>sh2ui.xcscheme</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
 	</dict>
 	<key>SuppressBuildableAutocreation</key>
 	<dict>
 		<key>3F3B11BF1DA7F5E8008D2E1A</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>3F4BD5732043A4FD00FBD74A</key>
 		<dict>
 			<key>primary</key>
 			<true/>
