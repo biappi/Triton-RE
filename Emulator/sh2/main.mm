@@ -83,31 +83,149 @@ public:
     }
 };
 
-class SCU : public Memory {
-    int i = 0;
-    
+class LCDCM : public Ram {
 public:
-    SCU(const char * name, const uint32_t start)
-        : Memory(name, start, 2)
+    LCDCM(const char * name, const uint32_t start, const uint32_t length)
+        : Ram(name, start, length)
+    {
+    }
+    
+    virtual uint8_t relative_read(uint32_t address) {
+        return Ram::relative_read(address);
+    }
+    
+    virtual void relative_write(uint32_t address, uint8_t v) {
+        Ram::relative_write(address, v);
+        if (v) {
+            printf("");
+        }
+    }
+};
+
+class LCDCIO : public Ram {
+public:
+    LCDCIO(const char * name, const uint32_t start, const uint32_t length)
+    : Ram(name, start, length)
+    {
+    }
+    
+    virtual uint8_t relative_read(uint32_t address) {
+        return Ram::relative_read(address);
+    }
+    
+    virtual void relative_write(uint32_t address, uint8_t v) {
+        Ram::relative_write(address, v);
+        if (v) {
+            printf("");
+        }
+    }
+};
+
+class TGL : public Ram {
+public:
+    TGL(const char * name, const uint32_t start, const uint32_t length)
+    : Ram(name, start, length)
     {
     }
     
     virtual uint8_t relative_read(uint32_t address) {
         if (address == 0) {
-            return 1;
+            return 4;
         }
-        else if (address == 1) {
-            return ++i;
-        }
-        else {
-            return 0;
-        }
+        return Ram::relative_read(address);
     }
     
     virtual void relative_write(uint32_t address, uint8_t v) {
-        ;
+        Ram::relative_write(address, v);
+        if (v) {
+            printf("");
+        }
+        
+        if (address == 0x609 && v == 0x01) {
+            Ram::relative_write(address, 0);
+        }
+
+        if (address == 0xe09 && v == 0x01) {
+            Ram::relative_write(address, 0);
+        }
+
     }
 };
+
+
+enum MemoryOperation {
+    opRead,
+    opWrite,
+};
+
+struct MemoryValue {
+    MemoryOperation op;
+    uint32_t        address;
+    uint8_t         value;
+};
+
+struct MemoryScript {
+    vector<MemoryValue> script;
+    int current = 0;
+};
+
+class Recorded : public Memory {
+    MemoryScript &script;
+
+public:
+
+    
+    Recorded(const char * name, const uint32_t start, const uint32_t length, MemoryScript &script)
+        : Memory(name, start, length), script(script)
+    {
+    }
+    
+    virtual uint8_t relative_read(uint32_t address) {
+        address = address + start;
+
+        if (script.current >= script.script.size()) {
+            printf("%s -- unexpected read\n\t{ opRead,  0x%08x, 0x%02x },\n", name, address, 0);
+            return 0;
+        }
+        
+        if (script.script[script.current].op != opRead) {
+            printf("%s -- unexpected read not write!\n\t{ opRead, 0x%08x, 0x%02x },\n", name, address, 0);
+            return 0;
+        }
+
+        if (script.script[script.current].address != address) {
+            printf("%s -- unexpected read address!\n\t{ opRead, 0x%08x, 0x%02x },\n", name, address, 0);
+            return 0;
+        }
+
+        return script.script[script.current++].value;
+    }
+    
+    virtual void relative_write(uint32_t address, uint8_t v) {
+        address = address + start;
+        
+        if (script.current >= script.script.size()) {
+            printf("%s -- unexpected write\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
+            return;
+        }
+        
+        if (script.script[script.current].op != opWrite) {
+            printf("%s -- unexpected write not read!\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
+            return;
+        }
+
+        if (script.script[script.current].address != address) {
+            printf("%s -- unexpected write address!\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
+            return;
+        }
+
+        if (script.script[script.current++].value != v) {
+            printf("%s -- unexpected write value\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
+            return;
+        }
+    }
+};
+
 
 struct symbols_t {
     uint32_t addr;
@@ -199,19 +317,149 @@ static const char * print_dword = "dword";
 
 class AddressSpace {
     vector<Memory *> memoryList;
-    SH2 * sh2;
     
 public:
-    bool trace = true;
-    
-    AddressSpace(SH2 * sh2)
-        : sh2(sh2)
-    { }
-    
     void add(Memory * memory) {
         memoryList.push_back(memory);
     }
     
+    Memory * memoryAtAddress(uint32_t a) {
+        for (auto & mem : memoryList)
+            if (mem->contains(a))
+                return mem;
+        
+        return nullptr;
+    }
+    
+    uint8_t read(uint32_t a) {
+        auto mem = memoryAtAddress(a);
+        
+        if (mem) {
+            return mem->relative_read(a - mem->start);
+        }
+        else {
+            if (a == 0xffff835a) {
+                return 0xff;
+            }
+            if (a == 0xffff835b) {
+                return 0xff;
+            }
+
+            return 0;
+        }
+    }
+    
+    void write(uint32_t a, uint8_t v) {
+        auto mem = memoryAtAddress(a);
+        
+        if (mem) {
+            mem->relative_write(a - mem->start, v);
+        }
+    }
+};
+
+Rom * RomFile(const char * name, const uint32_t start, NSString * file) {
+    auto data = [NSData dataWithContentsOfFile:file];
+    auto length = (const uint32_t) (data.length - 2);
+    
+    return new Rom(name, start, length, ((uint8_t *)data.bytes + 2));
+}
+
+struct CPU {
+    SH2 sh2;
+
+    AddressSpace * addressSpace;
+
+    CPU()
+    {
+        sh2_init(&sh2);
+        sh2.context = this;
+        
+        sh2.read8   = CPU::s_read8;
+        sh2.read16  = CPU::s_read16;
+        sh2.read32  = CPU::s_read32;
+        sh2.write8  = CPU::s_write8;
+        sh2.write16 = CPU::s_write16;
+        sh2.write32 = CPU::s_write32;
+        
+        sh2.irq_callback = CPU::s_irq_cb;
+    }
+    
+    void reset() {
+        sh2_reset(&sh2);
+    }
+    
+    void step() {
+        sh2_execute_interpreter(&sh2, 1, 1);
+    }
+
+private:
+    uint8_t read(uint32_t a) {
+        if (addressSpace)
+            return addressSpace->read(a);
+        else
+            return 0;
+    }
+    
+    void write(uint32_t a, uint8_t v) {
+        if (addressSpace)
+            addressSpace->write(a, v);
+    }
+
+    void log(const char * rw,
+             const char * s,
+             uint32       a,
+             uint32       d)
+    {
+        // LCDCIO
+        if (sh2.pc == 0x00000656)
+            return;
+        
+        if ((sh2.pc == 0x000006cc) || (sh2.pc == 0x000006ce))
+            return;
+        
+        if ((sh2.pc == 0x000006e8) || (sh2.pc == 0x000006ea))
+            return;
+
+        
+        // DRAM clear
+        if (sh2.pc == 0x005a58f4)
+            return;
+        
+        if (sh2.ppc == 0x0001577a)
+            return;
+
+        if (sh2.ppc == 0x0001577c)
+            return;
+
+        const char * name;
+        const char * space;
+        
+        if (a == sh2.pc || a == sh2.ppc)
+            return;
+        
+        auto mem = addressSpace->memoryAtAddress(a);
+        
+        if (mem) {
+            space = mem->name;
+        }
+        else {
+            space = "!*!*!*!*";
+        }
+        
+        name = name_for(a);
+        printf("pc: %08x )  %s %s at %08x : %s %8x %s\n",
+               sh2.ppc,
+               rw,
+               space,
+               a,
+               s,
+               d,
+               name_for(a));        
+    }
+
+    
+private:
     uint32_t read8(uint32_t a) {
         uint32_t d = read(a);
         
@@ -225,7 +473,6 @@ public:
         
         log(print_read, print_word, a, d);
         return d;
-
     }
     
     uint32_t read32(uint32_t a) {
@@ -259,148 +506,160 @@ public:
         write(a + 2, (d & 0x0000ff00) >>  8);
         write(a + 3, (d & 0x000000ff)      );
     }
-
-private:
-    Memory * memoryAtAddress(uint32_t a) {
-        for (auto & mem : memoryList)
-            if (mem->contains(a))
-                return mem;
-        
-        return nullptr;
+    
+    static uint32_t s_read8(uint32_t a, SH2 * sh2) {
+        return ((CPU *)sh2->context)->read8(a);
     }
     
-    uint8_t read(uint32_t a) {
-        auto mem = memoryAtAddress(a);
-        
-        if (mem) {
-            return mem->relative_read(a - mem->start);
-        }
-        else {
-            return 0;
-        }
+    static uint32_t s_read16(uint32_t a, SH2 * sh2) {
+        return ((CPU *)sh2->context)->read16(a);
     }
     
-    void write(uint32_t a, uint8_t v) {
-        auto mem = memoryAtAddress(a);
-        
-        if (mem) {
-            mem->relative_write(a - mem->start, v);
-        }
+    static uint32_t s_read32(uint32_t a, SH2 * sh2) {
+        return ((CPU *)sh2->context)->read32(a);
     }
     
-    void log(const char * rw,
-             const char * s,
-             uint32       a,
-             uint32       d)
+    static void s_write8(uint32_t a, uint32_t d, SH2 * sh2) {
+        return ((CPU *)sh2->context)->write8(a, d);
+    }
+    
+    static void s_write16(uint32_t a, uint32_t d, SH2 * sh2) {
+        return ((CPU *)sh2->context)->write16(a, d);
+    }
+    
+    static void s_write32(uint32_t a, uint32_t d, SH2 * sh2) {
+        return ((CPU *)sh2->context)->write32(a, d);
+    }
+    
+    static int s_irq_cb(SH2 *sh2, int level)
     {
-
-        // LCDCIO
-        if (sh2->pc == 0x00000656)
-            return;
-        
-//        if ((sh2->pc == 0x000006cc) || (sh2->pc == 0x000006ce))
-//            return;
-        
-        if ((sh2->pc == 0x000006e8) || (sh2->pc == 0x000006ea))
-            return;
-        
-        const char * name;
-        const char * space;
-        
-        if (a == sh2->pc || a == sh2->ppc)
-            return;
-        
-        auto mem = memoryAtAddress(a);
-        
-        if (mem) {
-            space = mem->name;
+        if (sh2->pending_irl > sh2->pending_int_irq) {
+            printf( "ack/irl %d @ %08x", level, sh2->pc);
+            return 64 + sh2->pending_irl / 2;
+        } else {
+            printf("ack/int %d/%d @ %08x", level, sh2->pending_int_vector, sh2->pc);
+            sh2->pending_int_irq = 0; // auto-clear
+            sh2->pending_level = sh2->pending_irl;
+            return sh2->pending_int_vector;
         }
-        else {
-            space = "!*!*!*!*";
-        }
-        
-        name = name_for(a);
-        printf("pc: %08x )  %s %s at %08x : %s %8x %s\n",
-               sh2->pc,
-               rw,
-               space,
-               a,
-               s,
-               d,
-               name_for(a));
     }
 };
 
-static int sh2_irq_cb(SH2 *sh2, int level)
-{
-    if (sh2->pending_irl > sh2->pending_int_irq) {
-        printf( "ack/irl %d @ %08x", level, sh2->pc);
-        return 64 + sh2->pending_irl / 2;
-    } else {
-        printf("ack/int %d/%d @ %08x", level, sh2->pending_int_vector, sh2->pc);
-        sh2->pending_int_irq = 0; // auto-clear
-        sh2->pending_level = sh2->pending_irl;
-        return sh2->pending_int_vector;
-    }
-}
-
-Rom * RomFile(const char * name, const uint32_t start, NSString * file) {
-    auto data = [NSData dataWithContentsOfFile:file];
-    auto length = (const uint32_t) (data.length - 2);
+struct Machine {
+    CPU cpu;
+    AddressSpace memory;
+    MemoryScript script;
     
-    return new Rom(name, start, length, ((uint8_t *)data.bytes + 2));
-}
+    Machine() {
+        cpu.addressSpace = &memory;
+        
+        memory.add(RomFile    ("INT01080", 0x00000000, @"disk1/INT01080.710"));
+        memory.add(RomFile    ("INT13080", 0x00008000, @"disk1/INT13080.710"));
+        memory.add(RomFile    ("EXT03080", 0x00400000, @"disk1/EXT03080.710"));
+        memory.add(RomFile    ("EXT34080", 0x004c0000, @"disk2/EXT34080.710"));
+        memory.add(RomFile    ("EXT74080", 0x005c0000, @"disk3/EXT74080.710"));
 
-SH2 sh2;
-auto memory = AddressSpace(&sh2);
+        auto spc       = new Ram      ("SPC     ", 0x00800000, 0x00100000);
+        auto lcdcm     = new LCDCM    ("LCDCM   ", 0x00900000, 0x00100000);
+        auto lcdcio    = new LCDCIO   ("LCDCIO  ", 0x00a00000, 0x00100000);
+        auto tgl       = new TGL      ("TGL     ", 0x00b00000, 0x00100000);//, script);
+        auto moss      = new Ram      ("MOSS    ", 0x00d00000, 0x00100000);
+        auto fdc       = new Ram      ("FDC     ", 0x00e00000, 0x00100000);
+        auto scu       = new Recorded ("SCU     ", 0x00f00000, 0x00000002, script);
+        auto dram      = new Ram      ("DRAM    ", 0x01000000, 0x01000000);
+        auto chipram   = new Ram      ("CHIPRAM ", 0xfffff000, 0x00001000);
+        
+        memory.add(spc);
+        memory.add(lcdcm);
+        memory.add(lcdcio);
+        memory.add(tgl);
+        memory.add(moss);
+        memory.add(fdc);
+        memory.add(scu);
+        memory.add(dram);
+        memory.add(chipram);
+        
+        cpu.sh2.pc = cpu.sh2.read32(0, &cpu.sh2);
+
+        uint8_t serial_ack = 0;
+        
+        script.script = {
+            
+            #include "scu_init_script.h"
+            
+        };
+        
+        
+    }
+    
+};
+
+extern "C" unsigned DasmSH2(char *buffer, unsigned pc, uint16_t opcode);
+
 
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
-        sh2_init(&sh2);
-
-        memory.add(RomFile("INT01080", 0x00000000, @"disk1/INT01080.710"));
-        memory.add(RomFile("INT13080", 0x00008000, @"disk1/INT13080.710"));
-        memory.add(RomFile("EXT03080", 0x00400000, @"disk1/EXT03080.710"));
-        memory.add(RomFile("EXT34080", 0x004c0000, @"disk2/EXT34080.710"));
-
-        memory.add(new Ram("SPC     ", 0x00800000, 0x00100000));
-        memory.add(new Ram("LCDCM   ", 0x00900000, 0x00100000));
-        memory.add(new Ram("LCDCIO  ", 0x00a00000, 0x00100000));
-        memory.add(new Ram("TGL     ", 0x00b00000, 0x00100000));
-        memory.add(new Ram("MOSS    ", 0x00d00000, 0x00100000));
-        memory.add(new Ram("FDC     ", 0x00e00000, 0x00100000));
-        memory.add(new SCU("SCU     ", 0x00f00000));
-        memory.add(new Ram("DRAM    ", 0x01000000, 0x01000000));
-        memory.add(new Ram("CHIPRAM ", 0xfffff000, 0x00001000));
         
-        sh2.irq_callback = sh2_irq_cb;
+        bool trace = false;
+        uint32_t saved_sp = 0;
+        
+        Machine machine;
 
-        sh2.write8 = [](uint32_t a, uint32_t d, SH2 *sh2) {
-            memory.write8(a, d);
-        };
-        
-        sh2.write16 = [](uint32_t a, uint32_t d, SH2 *sh2) {
-            memory.write16(a, d);
-        };
-        
-        sh2.write32 = [](uint32_t a, uint32_t d, SH2 *sh2) {
-            memory.write32(a, d);
-        };
-        
-        sh2.read8 = [](uint32_t a, SH2 *sh2) {
-            return memory.read8(a);
-        };
+        for (int i = 0; i < 1000000000; i++) {
+            machine.cpu.step();
+            
+//            if (machine.cpu.sh2.ppc == 0x98c)
+//                trace = true;
+            
+//            if (machine.cpu.sh2.ppc == 0x00466574)
+//                trace = true;
+//
+//            if (machine.cpu.sh2.ppc == 0x004667C8)
+//                trace = false;
 
-        sh2.read16 = [](uint32_t a, SH2 *sh2) {
-            return memory.read16(a);
-        };
+            
+            if (machine.cpu.sh2.ppc == 0x00469C34) {
+                {
+                    char cstring[200] = {0};
+                    
+                    auto _x = machine.cpu.sh2.r[4];
+                    auto _y = machine.cpu.sh2.r[5];
+                    auto string = machine.cpu.sh2.r[6];
+                    
+                    for (int i = 0; i < sizeof(cstring); i++) {
+                        auto c = machine.memory.read(string + i);
+                        cstring[i] = c;
+                        
+                        if (c == 0)
+                            break;
+                    }
+                    
+                    printf(" MAYBE PRINT > %3d %3d: %s\n", _x, _y, cstring);
+                }
+            
+            if (machine.cpu.sh2.pc == 0x00016678)
+                trace = true;
+                saved_sp = machine.cpu.sh2.r[15];
+            }
+            
+            if (saved_sp && machine.cpu.sh2.r[15] > saved_sp) {
+                trace = false;
+                saved_sp = 0;
+            }
+            
+            if (trace) {
+                char buff[256];
+                auto opcode = ((machine.memory.read(machine.cpu.sh2.ppc)     << 8) +
+                               (machine.memory.read(machine.cpu.sh2.ppc + 1))    );
 
-        sh2.read32 = [](uint32_t a, SH2 *sh2) {
-            return memory.read32(a);
-        };
-        
-        sh2_reset(&sh2);
-        sh2_execute(&sh2, 10000000, 0);
+                DasmSH2(buff, machine.cpu.sh2.ppc, opcode);
+                printf("pc: %08x -- [ %04x ] -- %s\n", machine.cpu.sh2.ppc, opcode, buff);
+            }
+
+
+            if (machine.cpu.sh2.ppc == 0x00015760)
+                exit(0);
+        }
     }
     return 0;
 }

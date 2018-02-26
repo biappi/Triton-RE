@@ -76,12 +76,20 @@ static unsigned int op_refs[0x10000];
 
 unsigned DasmSH2(char *buffer, unsigned pc, UINT16 opcode);
 
-unsigned int saved_sr = 0;
-
-int sh2_execute_interpreter(SH2 *sh2, int cycles, int do_trace)
+void print_regs(SH2 *sh2)
 {
-    int trace = 0;
+    for (int i = 0; i < 16; i++) {
+        if (((i % 4) == 0) && i != 0)
+            printf("\n");
+            
+        printf("r%2d: %8x  ", i, sh2->r[i]);
+    }
     
+    printf("\n");
+}
+
+int sh2_execute_interpreter(SH2 *sh2, int cycles, int stop_also_delay)
+{
 	UINT32 opcode;
 
 	sh2->icount = cycles;
@@ -96,64 +104,13 @@ int sh2_execute_interpreter(SH2 *sh2, int cycles, int do_trace)
 			sh2->ppc = sh2->delay;
 			opcode = RW(sh2, sh2->delay);
 			sh2->pc -= 2;
-         
-            /*
-            if (sh2->ppc == 0x494) {
-            //    trace = 1;
-                saved_sr = sh2->sr;
-            }
-        
-            if (trace && (sh2->sr > saved_sr)) {
-                trace = 0;
-                printf("\n");
-            }
-
-             if (sh2->ppc == 0x001da0e) {
-             printf("c\n");
-             }
-
-             */
-
-            if (trace) {
-                char buff[256];
-                DasmSH2(buff, sh2->ppc, opcode);
-                printf("delay       at pc: %08x -- [ %04x ] -- %s\n", sh2->ppc, opcode, buff);
-            }
         }
 		else
 		{
 			sh2->ppc = sh2->pc;
 			opcode = RW(sh2, sh2->pc);
-
-            if (sh2->ppc == 0x494) {
-//                trace = 1;
-                saved_sr = sh2->sr;
-            }
-
-            if (trace && (sh2->sr > saved_sr)) {
-//                trace = 0;
-            }
-            
-            
-            if (trace) {
-                char buff[256];
-                DasmSH2(buff, sh2->pc, opcode);
-                printf("instruction at pc: %08x -- [ %04x ] -- %s\n", sh2->pc, opcode, buff);
-            }
         }
         
-        if (sh2->pc == 0x001d9e2) {
-            exit(1);
-        }
-
-        if (sh2->pc == 0x6ea) {
-            printf("");
-        }
-
-        if (sh2->ppc == 0x996) {
-            trace = do_trace && 1;
-        }
-
 		sh2->delay = 0;
 		sh2->pc += 2;
 
@@ -188,7 +145,7 @@ int sh2_execute_interpreter(SH2 *sh2, int cycles, int do_trace)
 		}
 
 	}
-	while (sh2->icount > 0 || sh2->delay);	/* can't interrupt before delay */
+	while (sh2->icount > 0 || (sh2->delay && !stop_also_delay));	/* can't interrupt before delay */
 
 out:
 	return sh2->icount;

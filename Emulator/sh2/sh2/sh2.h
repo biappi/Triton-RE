@@ -71,16 +71,11 @@ typedef struct SH2_
     
     
 	unsigned int	cycles_timeslice;
-
-	// we use 68k reference cycles for easier sync
-    /*
-	unsigned int	m68krcycles_done;
-	unsigned int	mult_m68k_to_sh2;
-	unsigned int	mult_sh2_to_m68k;
-*/
     
 	unsigned char	data_array[0x1000]; // cache (can be used as RAM)
 	unsigned int	peri_regs[0x200/4]; // periphereal regs
+    
+    void * context;
 } SH2;
 
 #define CYCLE_MULT_SHIFT 10
