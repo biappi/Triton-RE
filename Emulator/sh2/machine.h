@@ -11,6 +11,7 @@
 
 #import <Foundation/Foundation.h>
 #import <vector>
+#import <map>
 #import <functional>
 
 extern "C" {
@@ -75,6 +76,7 @@ public:
         data = (uint8_t *)malloc(length);
         memset(data, 0, length);
     }
+
     
     ~Ram() {
         free(data);
@@ -181,79 +183,115 @@ public:
     }
 };
 
-enum MemoryOperation {
-    opRead,
-    opWrite,
+
+struct flash_command {
+    uint16_t addr;
+    uint8_t  data;
 };
 
-struct MemoryValue {
-    MemoryOperation op;
-    uint32_t        address;
-    uint8_t         value;
+flash_command readreset[] = {
+    { 0x5555, 0xaa },
+    { 0x2aaa, 0x55 },
+    { 0x5555, 0xf0 },
+    { 0xffff, 0xff },
 };
 
-struct MemoryScript {
-    vector<MemoryValue> script;
-    int current = 0;
+int readreset_cur[] = {0, 0};
+
+flash_command sector_erase[] = {
+    { 0x5555, 0xaa },
+    { 0x2aaa, 0x55 },
+    { 0x5555, 0x80 },
+    { 0x5555, 0xaa },
+    { 0x2aaa, 0x55 },
+    { 0xffff, 0x30 },
 };
 
-class Recorded : public Memory {
-    MemoryScript &script;
+int sector_erase_cur[] = {0, 0};
+
+
+bool sector_erase_wants_write = false;
+
+
+
+class Flash : public Memory {
+    uint8_t * data;
     
 public:
-    
-    
-    Recorded(const char * name, const uint32_t start, const uint32_t length, MemoryScript &script)
-    : Memory(name, start, length), script(script)
+    Flash(const char * name, const uint32_t start, const uint32_t length, uint8_t * d)
+    : Memory(name, start, length)
     {
+        data = (uint8_t *)malloc(length);
+        memcpy(data, d, length);
+    }
+    
+    ~Flash() {
+        free(data);
     }
     
     virtual uint8_t relative_read(uint32_t address) {
-        address = address + start;
-        
-        if (script.current >= script.script.size()) {
-            printf("%s -- unexpected read\n\t{ opRead,  0x%08x, 0x%02x },\n", name, address, 0);
-            return 0;
+        if ((address == 0) ||
+            (address == 1) ||
+            (address == 2) ||
+            (address == 3))
+        {
+            printf("status register\n");
         }
+
         
-        if (script.script[script.current].op != opRead) {
-            printf("%s -- unexpected read not write!\n\t{ opRead, 0x%08x, 0x%02x },\n", name, address, 0);
-            return 0;
-        }
+//        if (address == 0) return 0x00;
+//        if (address == 1) return 0x80;
+//        if (address == 2) return 0x00;
+//        if (address == 3) return 0x80;
         
-        if (script.script[script.current].address != address) {
-            printf("%s -- unexpected read address!\n\t{ opRead, 0x%08x, 0x%02x },\n", name, address, 0);
-            return 0;
-        }
-        
-        return script.script[script.current++].value;
+        return data[address];
     }
     
     virtual void relative_write(uint32_t address, uint8_t v) {
-        address = address + start;
+        data[address] = v;
         
-        if (script.current >= script.script.size()) {
-            printf("%s -- unexpected write\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
-            return;
-        }
+        auto doit  = (address & 1);
+        auto flash = (address & 0x0002) >> 1;
+        auto reg   = (address >> 2);
         
-        if (script.script[script.current].op != opWrite) {
-            printf("%s -- unexpected write not read!\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
-            return;
-        }
-        
-        if (script.script[script.current].address != address) {
-            printf("%s -- unexpected write address!\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
-            return;
-        }
-        
-        if (script.script[script.current++].value != v) {
-            printf("%s -- unexpected write value\n\t{ opWrite, 0x%08x, 0x%02x },\n", name, address, v);
-            return;
+        if (doit)
+        {
+            printf("flash control %08x %d %04x %02x\n", (address), flash, reg, v);
+            
+            if ((reg  == readreset[readreset_cur[flash]].addr) &&
+                (v    == readreset[readreset_cur[flash]].data))
+            {
+                readreset_cur[flash]++;
+            }
+            
+            if (readreset_cur[flash] > (sizeof(readreset) / sizeof(flash_command))) {
+                readreset_cur[flash] = 0;
+            }
+
+            auto wanted_reg = sector_erase[sector_erase_cur[flash]].addr;
+            auto wanted_data = sector_erase[sector_erase_cur[flash]].data;
+            
+            if ((reg  == wanted_reg) &&
+                (v    == wanted_data))
+            {
+                sector_erase_cur[flash]++;
+            }
+
+            if (0x30   == wanted_data)
+            {
+                printf("flash sector erase %08x", address);
+                sector_erase_cur[flash]++;
+            }
+
+            
+            if (sector_erase_cur[flash] > (sizeof(readreset) / sizeof(flash_command))) {
+                sector_erase_cur[flash] = 0;
+            }
+            
+            sector_erase_wants_write = (sector_erase[sector_erase_cur[flash]].addr == 0xffff);
         }
     }
 };
-
 
 struct symbols_t {
     uint32_t addr;
@@ -366,13 +404,6 @@ public:
             return mem->relative_read(a - mem->start);
         }
         else {
-            if (a == 0xffff835a) {
-                return 0xff;
-            }
-            if (a == 0xffff835b) {
-                return 0xff;
-            }
-            
             return 0;
         }
     }
@@ -393,10 +424,21 @@ Rom * RomFile(const char * name, const uint32_t start, NSString * file) {
     return new Rom(name, start, length, ((uint8_t *)data.bytes + 2));
 }
 
+Flash * FlashFile(const char * name, const uint32_t start, NSString * file) {
+    auto data = [NSData dataWithContentsOfFile:file];
+    auto length = (const uint32_t) (data.length - 2);
+    
+    return new Flash(name, start, length, ((uint8_t *)data.bytes + 2));
+}
+
 struct CPU {
     SH2 sh2;
     
     AddressSpace * addressSpace;
+    
+    map<uint32_t, function<uint32_t(uint32_t, uint8_t)>> patches_8;
+    map<uint32_t, function<uint32_t(uint32_t, uint16_t)>> patches_16;
+    map<uint32_t, function<uint32_t(uint32_t, uint32_t)>> patches_32;
     
     CPU()
     {
@@ -423,6 +465,9 @@ struct CPU {
     
 private:
     uint8_t read(uint32_t a) {
+        if (a == 0xFFFFF844) {
+            return 2;
+        }
         if (addressSpace)
             return addressSpace->read(a);
         else
@@ -430,6 +475,10 @@ private:
     }
     
     void write(uint32_t a, uint8_t v) {
+        if (a == 0xFFFFF844) {
+            printf("");
+        }
+
         if (addressSpace)
             addressSpace->write(a, v);
     }
@@ -439,6 +488,8 @@ private:
              uint32       a,
              uint32       d)
     {
+        return;
+        
         // LCDCIO
         if (sh2.pc == 0x00000656)
             return;
@@ -449,16 +500,19 @@ private:
         if ((sh2.pc == 0x000006e8) || (sh2.pc == 0x000006ea))
             return;
         
+        static bool x = false;
         
         // DRAM clear
         if (sh2.pc == 0x005a58f4)
             return;
         
+        if (x) {
         if (sh2.ppc == 0x0001577a)
             return;
         
         if (sh2.ppc == 0x0001577c)
             return;
+        }
         
         const char * name;
         const char * space;
@@ -484,12 +538,25 @@ private:
                s,
                d,
                name_for(a));
+        
+        if (a == 0x0040aaa8) {
+            printf("");
+        }
+
+        if (a == 0x00415554) {
+            printf("");
+        } 
     }
     
     
 private:
     uint32_t read8(uint32_t a) {
         uint32_t d = read(a);
+        
+        auto t = patches_8.find(a);
+        if (t != patches_8.end()) {
+            d = t->second(a, d);
+        }
         
         log(print_read, print_byte, a, d);
         return d;
@@ -498,7 +565,12 @@ private:
     uint32_t read16(uint32_t a) {
         uint32_t d = (((read(a    ) & 0xff) << 8) +
                       ((read(a + 1) & 0xff)     ));
-        
+
+        auto t = patches_16.find(a);
+        if (t != patches_16.end()) {
+            d = t->second(a, d);
+        }
+
         log(print_read, print_word, a, d);
         return d;
     }
@@ -508,6 +580,20 @@ private:
                       ((read(a + 1) & 0xff) << 16) +
                       ((read(a + 2) & 0xff) <<  8) +
                       ((read(a + 3) & 0xff)      ));
+        
+        auto t = patches_32.find(a);
+        if (t != patches_32.end()) {
+            d = t->second(a, d);
+        }
+
+        
+        if (sh2.pc == 0x0001577e) {
+            printf("pc: %08x\n", sh2.pc);
+            
+            auto t = sh2.r[5];
+            printf("t: %08x\n", t);
+            return t;
+        }
         
         log(print_read, print_dword, a, d);
         return d;
@@ -528,6 +614,10 @@ private:
     
     void write32(uint32_t a, uint32_t d) {
         log(print_write, print_dword, a, d);
+        
+        if (sector_erase_wants_write && ((a & 0xffc00000) == 0x00400000)) {
+            printf("flash sector erase %08x %02x\n", a, d);
+        }
         
         write(a,     (d & 0xff000000) >> 24);
         write(a + 1, (d & 0x00ff0000) >> 16);
@@ -576,7 +666,6 @@ private:
 struct Machine {
     CPU cpu;
     AddressSpace memory;
-    MemoryScript script;
     
     LCDCIO * lcdcio;
     
@@ -587,17 +676,18 @@ struct Machine {
         
         memory.add(RomFile    ("INT01080", 0x00000000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk1/INT01080.710"));
         memory.add(RomFile    ("INT13080", 0x00008000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk1/INT13080.710"));
-        memory.add(RomFile    ("EXT03080", 0x00400000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk1/EXT03080.710"));
-        memory.add(RomFile    ("EXT34080", 0x004c0000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk2/EXT34080.710"));
-        memory.add(RomFile    ("EXT74080", 0x005c0000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk3/EXT74080.710"));
+        
+        memory.add(FlashFile  ("EXT03080", 0x00400000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk1/EXT03080.710"));
+        memory.add(FlashFile  ("EXT34080", 0x004c0000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk2/EXT34080.710"));
+        memory.add(FlashFile  ("EXT74080", 0x005c0000, @"/Users/willy/Sources/Triton-RE/Triton OS Releases/Triton OS 2.0.0/disk3/EXT74080.710"));
         
         auto spc       = new Ram      ("SPC     ", 0x00800000, 0x00100000);
         auto lcdcm     = new LCDCM    ("LCDCM   ", 0x00900000, 0x00100000);
              lcdcio    = new LCDCIO   ("LCDCIO  ", 0x00a00000, 0x00100000);
-        auto tgl       = new TGL      ("TGL     ", 0x00b00000, 0x00100000);//, script);
+        auto tgl       = new TGL      ("TGL     ", 0x00b00000, 0x00100000);
         auto moss      = new MOSS     ("MOSS    ", 0x00d00000, 0x00100000);
         auto fdc       = new Ram      ("FDC     ", 0x00e00000, 0x00100000);
-        auto scu       = new Recorded ("SCU     ", 0x00f00000, 0x00000002, script);
+        auto scu       = new Ram      ("SCU     ", 0x00f00000, 0x00000002);
         auto dram      = new Ram      ("DRAM    ", 0x01000000, 0x01000000);
         auto chipram   = new Ram      ("CHIPRAM ", 0xfffff000, 0x00001000);
         
@@ -613,10 +703,31 @@ struct Machine {
         
         cpu.sh2.pc = cpu.sh2.read32(0, &cpu.sh2);
         
-        uint8_t serial_ack = 0;
+        static uint32_t serial_ack    = 0;
+        static uint32_t serial_cnt    = 0;
+        static uint32_t serial_data[] = { 0x66, 0x31 };
         
-        script.script = {
-            #include "scu_init_script.h"
+        cpu.patches_8 = {
+            { 0x00f00001, [&](auto a, auto v){
+                return serial_ack++;
+            }},
+            
+            { 0x00f00000, [&](auto a, auto v){
+                auto b = serial_data[serial_cnt];
+                
+                serial_cnt++;
+                serial_cnt %= sizeof(serial_data) / sizeof(uint32_t);
+                
+                return b;
+            }},
+        };
+        
+        cpu.patches_16 = {
+            { 0xffff835a, [&](auto a, auto v) { return 0xffff; }},
+        };
+        
+        cpu.patches_32 = {
+            { 0xFFFFF844, [&](auto a, auto v) { return 0xa; }},
         };
     }
     
@@ -624,19 +735,8 @@ struct Machine {
         bool trace = false;
         uint32_t saved_sp = 0;
         
-        
         while (true) {
             cpu.step();
-            
-            //            if (machine.cpu.sh2.ppc == 0x98c)
-            //                trace = true;
-            
-            //            if (machine.cpu.sh2.ppc == 0x00466574)
-            //                trace = true;
-            //
-            //            if (machine.cpu.sh2.ppc == 0x004667C8)
-            //                trace = false;
-            
             
             if (cpu.sh2.ppc == 0x00469C34) {
                 {
@@ -667,22 +767,36 @@ struct Machine {
                 saved_sp = 0;
             }
             
+            char buff[256];
+            auto opcode = ((memory.read(cpu.sh2.ppc)     << 8) +
+                           (memory.read(cpu.sh2.ppc + 1))    );
+            
+            DasmSH2(buff, cpu.sh2.ppc, opcode);
+            
             if (trace) {
-                char buff[256];
-                auto opcode = ((memory.read(cpu.sh2.ppc)     << 8) +
-                               (memory.read(cpu.sh2.ppc + 1))    );
-                
-                DasmSH2(buff, cpu.sh2.ppc, opcode);
                 printf("pc: %08x -- [ %04x ] -- %s\n", cpu.sh2.ppc, opcode, buff);
+            }
+
+            if ((opcode & 0x0000ff00) == 0x0000c300) {
+                printf("pc: %08x ) TRAPA %08x -- r0: %02x\n", cpu.sh2.ppc, opcode, cpu.sh2.r[0]);
             }
             
             if (lcdcio->isDirty() && frameCallback) {
                 frameCallback(lcdcio->data, 320 * 240 * 8);
                 lcdcio->clearDirty();
             }
+          
+            static uint32_t bp = 0x00497D94;
             
-            //            if (machine.cpu.sh2.ppc == 0x00015760)
-            //                exit(0);
+            if (cpu.sh2.pc  == bp) {
+                trace = true;
+            }
+//            if (cpu.sh2.pc  == 0x0000af10) {
+//                cpu.sh2.r[0] = 0xffffffbd;
+//                cpu.sh2.pc = cpu.sh2.vbr + 4 * 65;
+//                trace = true;
+//
+//            }
         }
     }
 };
